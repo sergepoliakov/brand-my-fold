@@ -12,6 +12,40 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function notificationFields(fields) {
+  return Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([label, value]) => `${label}: ${cleanText(value, 500)}`)
+    .join("\n");
+}
+
+async function notifyOwner(env, event, fields = {}) {
+  if (!env.EMAIL || !validEmail(env.NOTIFICATION_TO) || !validEmail(env.NOTIFICATION_FROM)) {
+    return { sent: false, reason: "notification_not_configured" };
+  }
+  try {
+    const result = await env.EMAIL.send({
+      to: env.NOTIFICATION_TO,
+      from: { name: "Brand My Fold", email: env.NOTIFICATION_FROM },
+      subject: `Brand My Fold: ${event}`,
+      text: `${event}\n\n${notificationFields(fields)}\n\nOpen the admin API to review the authoritative record.`,
+    });
+    console.log(JSON.stringify({ event: "notification_sent", notification: event, messageId: result.messageId }));
+    return { sent: true, messageId: result.messageId };
+  } catch (error) {
+    console.error(JSON.stringify({ event: "notification_failed", notification: event, code: error?.code || "unknown" }));
+    return { sent: false, reason: error?.code || "notification_failed" };
+  }
+}
+
+function scheduleNotification(ctx, promise) {
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(promise);
+    return;
+  }
+  void promise;
+}
+
 async function ensureSeedSpots(db) {
   const count = await db.prepare("SELECT COUNT(*) AS count FROM spots").first();
   if (Number(count?.count || 0) > 0) return;
@@ -67,7 +101,7 @@ function validateBid(body, networks) {
   return null;
 }
 
-async function postWaitlist(request, env) {
+async function postWaitlist(request, env, ctx) {
   if (!requireSameOrigin(request, env)) return json({ error: "invalid_origin" }, { status: 403 });
   const body = await readBody(request);
   const challenge = await verifyTurnstile(request, env, body.turnstileToken);
@@ -76,6 +110,7 @@ async function postWaitlist(request, env) {
   const email = cleanText(body.email, 254).toLowerCase();
   const handle = cleanText(body.handle, 80);
   await env.DB.prepare("INSERT OR IGNORE INTO waitlist (email, x_handle, created_at) VALUES (?, ?, ?)").bind(email, handle, nowIso()).run();
+  scheduleNotification(ctx, notifyOwner(env, "new waitlist signup", { Email: email, "X handle": handle }));
   return json({ ok: true }, { status: 201 });
 }
 
@@ -169,6 +204,12 @@ async function adminSubmissions(request, env) {
   return json({ submissions: results });
 }
 
+async function adminNotificationTest(request, env) {
+  if (!await authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
+  const result = await notifyOwner(env, "production notification test", { Environment: env.ENVIRONMENT || "unknown" });
+  return result.sent ? json({ ok: true, messageId: result.messageId }, { status: 201 }) : json({ error: result.reason }, { status: 503 });
+}
+
 function roomFor(env) {
   const id = env.AUCTION_ROOM.idFromName("main");
   return env.AUCTION_ROOM.get(id);
@@ -219,6 +260,16 @@ export class AuctionRoom {
       cleanText(body.website, 300), cleanText(body.handle, 80), body.network, uploadTokenHash, createdAt, expiresAt,
     ).run();
     const network = networks.find((item) => item.id === body.network);
+    this.state.waitUntil(notifyOwner(this.env, "new bid quote", {
+      "Bid ID": id,
+      Spot: body.spotId,
+      Brand: body.brand,
+      Email: body.email,
+      "Bid amount": `${amount} USDT`,
+      Deposit: `${deposit} USDT`,
+      Network: body.network,
+      Expires: expiresAt,
+    }));
     return json({
       id,
       status: "awaiting_payment",
@@ -277,6 +328,16 @@ export class AuctionRoom {
         .bind(bidId, JSON.stringify({ spotId: bid.spot_id, amount: bid.amount_usdt, network: bid.network }), nowIso()),
     );
     await this.env.DB.batch(statements);
+    this.state.waitUntil(notifyOwner(this.env, "verified leading bid", {
+      "Bid ID": bidId,
+      Spot: bid.spot_id,
+      Brand: bid.brand,
+      Email: bid.email,
+      "Bid amount": `${bid.amount_usdt} USDT`,
+      Deposit: `${bid.deposit_usdt} USDT`,
+      Network: bid.network,
+      Transaction: txHash,
+    }));
     const payload = await auctionPayload(this.env);
     for (const socket of this.state.getWebSockets()) {
       try { socket.send(JSON.stringify({ type: "auction", payload })); } catch { socket.close(1011, "broadcast_failed"); }
@@ -289,7 +350,7 @@ export class AuctionRoom {
   webSocketError(socket) { socket.close(1011, "error"); }
 }
 
-async function apiFetch(request, env) {
+async function apiFetch(request, env, ctx) {
   const url = new URL(request.url);
   if (url.pathname === "/api/health") return json({ ok: true, environment: env.ENVIRONMENT || "development" });
   if (url.pathname === "/api/config") return json({
@@ -301,7 +362,7 @@ async function apiFetch(request, env) {
   });
   if (url.pathname === "/api/auction" && request.method === "GET") return json(await auctionPayload(env));
   if (url.pathname === "/api/auction/live" && request.headers.get("upgrade") === "websocket") return roomFor(env).fetch("https://auction.internal/events", request);
-  if (url.pathname === "/api/waitlist" && request.method === "POST") return postWaitlist(request, env);
+  if (url.pathname === "/api/waitlist" && request.method === "POST") return postWaitlist(request, env, ctx);
   if (url.pathname === "/api/experiments" && request.method === "POST") return postExperiment(request, env);
   if (url.pathname === "/api/bids/quote" && request.method === "POST") {
     if (!requireSameOrigin(request, env)) return json({ error: "invalid_origin" }, { status: 403 });
@@ -317,6 +378,7 @@ async function apiFetch(request, env) {
   if (url.pathname === "/api/payments/verify" && request.method === "POST") return postVerifyPayment(request, env);
   if (url.pathname === "/api/admin/refunds" && request.method === "GET") return adminRefunds(request, env);
   if (url.pathname === "/api/admin/submissions" && request.method === "GET") return adminSubmissions(request, env);
+  if (url.pathname === "/api/admin/notifications/test" && request.method === "POST") return adminNotificationTest(request, env);
   const moderationMatch = url.pathname.match(/^\/api\/admin\/submissions\/([^/]+)$/);
   if (moderationMatch && request.method === "POST") {
     if (!authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
@@ -327,10 +389,10 @@ async function apiFetch(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
-      if (url.pathname.startsWith("/api/")) return withSecurityHeaders(await apiFetch(request, env));
+      if (url.pathname.startsWith("/api/")) return withSecurityHeaders(await apiFetch(request, env, ctx));
       return withSecurityHeaders(await env.ASSETS.fetch(request));
     } catch (error) {
       return withSecurityHeaders(json({ error: "internal_error", requestId: request.headers.get("cf-ray") || crypto.randomUUID() }, { status: 500 }));

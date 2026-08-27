@@ -30,3 +30,26 @@ test("admin refund data is unavailable without authorization", async () => {
   const response = await worker.fetch(new Request("https://auction.example/api/admin/refunds"), { ENVIRONMENT: "production", ADMIN_TOKEN: "secret" });
   assert.equal(response.status, 401);
 });
+
+test("notification test requires admin authorization", async () => {
+  const response = await worker.fetch(new Request("https://auction.example/api/admin/notifications/test", { method: "POST" }), { ENVIRONMENT: "production", ADMIN_TOKEN: "secret" });
+  assert.equal(response.status, 401);
+});
+
+test("notification test uses the email binding without exposing the destination", async () => {
+  let delivered;
+  const response = await worker.fetch(new Request("https://auction.example/api/admin/notifications/test", {
+    method: "POST",
+    headers: { authorization: "Bearer secret" },
+  }), {
+    ENVIRONMENT: "production",
+    ADMIN_TOKEN: "secret",
+    NOTIFICATION_TO: "owner@example.com",
+    NOTIFICATION_FROM: "notifications@example.com",
+    EMAIL: { async send(message) { delivered = message; return { messageId: "message-1" }; } },
+  });
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).ok, true);
+  assert.equal(delivered.to, "owner@example.com");
+  assert.equal(delivered.subject, "Brand My Fold: production notification test");
+});

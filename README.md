@@ -12,6 +12,7 @@ This repository is the public, wallet-free edition. It demonstrates the complete
 - A live MapLibre globe backed by the public USGS M2.5+ GeoJSON feed.
 - A/B CTA assignment and event endpoint.
 - Cloudflare Worker, D1, Durable Object, R2 and Turnstile integration.
+- Owner notifications through a Cloudflare Send Email binding.
 - Exact ERC-20, BEP-20 and SPL transfer verification with replay protection.
 - Artwork moderation and auditable refund queues; the app stores no signing key.
 
@@ -46,7 +47,7 @@ The BNB Smart Chain option verifies the Binance-Peg BSC-USD contract shown in th
 
 ## Public and production separation
 
-The public repository contains no wallet, RPC secret, Turnstile secret or admin token. Production values belong in Cloudflare secrets and environment variables. See [docs/PRODUCTION.md](docs/PRODUCTION.md) and [.dev.vars.example](.dev.vars.example).
+The public repository contains no wallet, personal notification address, RPC secret, Turnstile secret or admin token. Production values belong in Cloudflare secrets and environment variables. See [docs/PRODUCTION.md](docs/PRODUCTION.md) and [.dev.vars.example](.dev.vars.example).
 
 ## Inspiration and independence
 

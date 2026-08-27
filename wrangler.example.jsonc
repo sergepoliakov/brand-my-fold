@@ -3,7 +3,12 @@
   "name": "brand-my-fold",
   "main": "cloudflare/index.js",
   "compatibility_date": "2026-08-27",
-  "observability": { "enabled": true },
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
@@ -14,6 +19,7 @@
     "ENVIRONMENT": "development",
     "SITE_EDITION": "open-source",
     "PAYMENTS_LIVE": "false",
+    "NOTIFICATION_FROM": "notifications@example.com",
     "ETHEREUM_CONFIRMATIONS": "3",
     "BSC_CONFIRMATIONS": "12"
   },
@@ -27,6 +33,9 @@
   ],
   "r2_buckets": [
     { "binding": "ARTWORK", "bucket_name": "brand-my-fold-artwork" }
+  ],
+  "send_email": [
+    { "name": "EMAIL" }
   ],
   "durable_objects": {
     "bindings": [
