@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Languages, Plus, ShieldCheck, Upload, X } from "lucide-react";
 import { CHANNEL_NAME, COPY, IS_PRODUCTION_EDITION, LANGUAGE_KEY, PRODUCT_IMAGES, PRODUCT_NAME, seedSpots, STORAGE_KEY, TARGET_USDT, VISITOR_KEY, WAITLIST_KEY } from "./content.js";
 import { createBidQuote, joinWaitlist, loadAuction, loadRuntimeConfig, recordExperiment, subscribeToAuction, uploadArtwork, verifyBidPayment } from "./api.js";
 import { ANONYMOUS_KEY, EXPERIMENT_KEY, anonymousId, ctaCopy, pickVariant } from "./experiment.js";
-import { LiveGlobe } from "./LiveGlobe.jsx";
+
+const LazyLiveGlobe = lazy(() => import("./LiveGlobe.jsx").then((module) => ({ default: module.LiveGlobe })));
+
+function LiveGlobe(props) {
+  return <Suspense fallback={<div className="traffic-panel traffic-loading" role="status">{props.copy.loading}</div>}><LazyLiveGlobe {...props}/></Suspense>;
+}
 
 const FALLBACK_END = Date.now() + 14 * 86400000;
 
