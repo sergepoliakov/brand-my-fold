@@ -17,9 +17,9 @@ test("red path rejects cross-origin writes, local URLs and control characters", 
   assert.equal(cleanText("safe\u0000\ntext", 30), "safetext");
 });
 
-test("admin API requires the exact bearer token", () => {
-  assert.equal(authorizeAdmin(new Request("https://x.test", { headers: { authorization: "Bearer correct" } }), { ADMIN_TOKEN: "correct" }), true);
-  assert.equal(authorizeAdmin(new Request("https://x.test", { headers: { authorization: "Bearer wrong" } }), { ADMIN_TOKEN: "correct" }), false);
+test("admin API requires the exact bearer token", async () => {
+  assert.equal(await authorizeAdmin(new Request("https://x.test", { headers: { authorization: "Bearer correct" } }), { ADMIN_TOKEN: "correct" }), true);
+  assert.equal(await authorizeAdmin(new Request("https://x.test", { headers: { authorization: "Bearer wrong" } }), { ADMIN_TOKEN: "correct" }), false);
 });
 
 test("security headers allow Turnstile while denying framing and sniffing", async () => {

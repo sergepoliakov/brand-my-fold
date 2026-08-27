@@ -64,7 +64,18 @@ export async function hashToken(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function authorizeAdmin(request, env) {
+export async function authorizeAdmin(request, env) {
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
-  return Boolean(env.ADMIN_TOKEN && supplied && supplied === env.ADMIN_TOKEN);
+  if (!env.ADMIN_TOKEN || !supplied) return false;
+  const encoder = new TextEncoder();
+  const [suppliedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(supplied)),
+    crypto.subtle.digest("SHA-256", encoder.encode(env.ADMIN_TOKEN)),
+  ]);
+  if (typeof crypto.subtle.timingSafeEqual === "function") return crypto.subtle.timingSafeEqual(suppliedHash, expectedHash);
+  const suppliedBytes = new Uint8Array(suppliedHash);
+  const expectedBytes = new Uint8Array(expectedHash);
+  let difference = 0;
+  for (let index = 0; index < suppliedBytes.length; index += 1) difference |= suppliedBytes[index] ^ expectedBytes[index];
+  return difference === 0;
 }

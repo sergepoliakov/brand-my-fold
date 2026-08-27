@@ -181,7 +181,7 @@ async function postVerifyPayment(request, env) {
 }
 
 async function adminRefunds(request, env) {
-  if (!authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
+  if (!await authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
   const { results } = await env.DB.prepare(`
     SELECT b.id, b.spot_id, b.brand, b.email, b.amount_usdt, b.deposit_usdt, b.network,
            b.tx_hash, b.status, p.sender_address, b.created_at
@@ -193,7 +193,7 @@ async function adminRefunds(request, env) {
 }
 
 async function adminSubmissions(request, env) {
-  if (!authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
+  if (!await authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
   const { results } = await env.DB.prepare(`
     SELECT id, spot_id, brand, email, website, x_handle, artwork_key, artwork_approved,
            amount_usdt, network, status, created_at
@@ -381,7 +381,7 @@ async function apiFetch(request, env, ctx) {
   if (url.pathname === "/api/admin/notifications/test" && request.method === "POST") return adminNotificationTest(request, env);
   const moderationMatch = url.pathname.match(/^\/api\/admin\/submissions\/([^/]+)$/);
   if (moderationMatch && request.method === "POST") {
-    if (!authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
+    if (!await authorizeAdmin(request, env)) return json({ error: "unauthorized" }, { status: 401 });
     const body = await readBody(request);
     return roomFor(env).fetch("https://auction.internal/moderate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bidId: moderationMatch[1], decision: body.decision }) });
   }
