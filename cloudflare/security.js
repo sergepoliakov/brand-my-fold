@@ -10,6 +10,7 @@ export function withSecurityHeaders(response) {
   const next = new Response(response.body, response);
   next.headers.set("x-content-type-options", "nosniff");
   next.headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  next.headers.set("strict-transport-security", "max-age=31536000");
   next.headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(self), payment=()");
   next.headers.set("x-frame-options", "DENY");
   next.headers.set(
