@@ -1,8 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker from "../cloudflare/index.js";
+import worker, { classifyTrafficSource } from "../cloudflare/index.js";
 
 const evm = `0x${"4".repeat(40)}`;
+
+test("traffic sources distinguish X, GitHub, search, direct, and referrals", () => {
+  assert.equal(classifyTrafficSource("t.co", ""), "X");
+  assert.equal(classifyTrafficSource("", "twitter"), "X");
+  assert.equal(classifyTrafficSource("github.com", ""), "GitHub");
+  assert.equal(classifyTrafficSource("www.google.com", ""), "Search");
+  assert.equal(classifyTrafficSource("", ""), "Direct");
+  assert.equal(classifyTrafficSource("", "launch-newsletter"), "Campaign");
+  assert.equal(classifyTrafficSource("example.com", ""), "Referral");
+});
 
 test("public config exposes destinations only when live and valid", async () => {
   const response = await worker.fetch(new Request("https://auction.example/api/config"), {

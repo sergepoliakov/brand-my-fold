@@ -1,55 +1,54 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Activity, ExternalLink, Globe2, LocateFixed, RefreshCw } from "lucide-react";
-import { MAP_STYLE, USGS_FEED } from "./content.js";
+import { ExternalLink, Globe2, LocateFixed, Radio, Users } from "lucide-react";
+import { MAP_STYLE } from "./content.js";
 
 function relativeTime(timestamp, lang) {
-  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
-  if (lang === "zh") return minutes < 1 ? "刚刚" : minutes < 60 ? `${minutes} 分钟前` : `${Math.floor(minutes / 60)} 小时前`;
-  return minutes < 1 ? "just now" : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
+  const milliseconds = Math.max(0, Date.now() - new Date(timestamp || Date.now()).getTime());
+  const minutes = Math.round(milliseconds / 60000);
+  if (lang === "zh") return minutes < 1 ? "刚刚" : minutes < 60 ? `${minutes} 分钟前` : minutes < 1440 ? `${Math.floor(minutes / 60)} 小时前` : `${Math.floor(minutes / 1440)} 天前`;
+  return minutes < 1 ? "just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
 }
 
-export function LiveGlobe({ visitors, lang, copy }) {
+function countryFlag(code) {
+  const normalized = String(code || "").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalized)) return "●";
+  return String.fromCodePoint(...normalized.split("").map((letter) => 127397 + letter.charCodeAt(0)));
+}
+
+function countryName(code, lang) {
+  if (!code) return "";
+  try {
+    return new Intl.DisplayNames([lang === "zh" ? "zh-CN" : "en"], { type: "region" }).of(code.toUpperCase()) || code;
+  } catch {
+    return code;
+  }
+}
+
+function sourceLabel(source, lang, direct) {
+  if (source === "Direct") return direct;
+  if (lang !== "zh") return source || direct;
+  return { Search: "搜索", Referral: "引荐链接", Campaign: "活动链接", "Product Hunt": "Product Hunt" }[source] || source || direct;
+}
+
+export function LiveGlobe({ traffic, lang, copy }) {
   const container = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const interactedUntil = useRef(0);
-  const [events, setEvents] = useState([]);
+  const visits = useMemo(() => (traffic?.visits || []).map((visit, index) => ({
+    ...visit,
+    id: `${visit.countryCode || "xx"}-${visit.lastSeen || "now"}-${index}`,
+    location: [visit.city, countryName(visit.countryCode, lang)].filter(Boolean).join(", ") || copy.unknown,
+    hasCoordinates: Number.isFinite(visit.latitude) && Number.isFinite(visit.longitude),
+  })), [traffic?.visits, lang, copy.unknown]);
+  const mappedVisits = useMemo(() => visits.filter((visit) => visit.hasCoordinates), [visits]);
   const [selectedId, setSelectedId] = useState("");
-  const [status, setStatus] = useState("loading");
-  const [updatedAt, setUpdatedAt] = useState(0);
-  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setStatus("loading");
-    fetch(USGS_FEED, { signal: controller.signal, cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`USGS ${response.status}`);
-        return response.json();
-      })
-      .then((payload) => {
-        const next = (payload.features || []).map((feature) => ({
-          id: feature.id,
-          mag: Number(feature.properties?.mag || 0),
-          place: feature.properties?.place || "Unknown location",
-          time: Number(feature.properties?.time || Date.now()),
-          url: feature.properties?.url || "https://earthquake.usgs.gov/earthquakes/map/",
-          longitude: Number(feature.geometry?.coordinates?.[0]),
-          latitude: Number(feature.geometry?.coordinates?.[1]),
-          depth: Number(feature.geometry?.coordinates?.[2] || 0),
-        })).filter((event) => Number.isFinite(event.latitude) && Number.isFinite(event.longitude)).sort((a, b) => b.mag - a.mag).slice(0, 120);
-        setEvents(next);
-        setSelectedId((current) => next.some((event) => event.id === current) ? current : next[0]?.id || "");
-        setUpdatedAt(Number(payload.metadata?.generated || Date.now()));
-        setStatus("live");
-      })
-      .catch((error) => {
-        if (error.name !== "AbortError") setStatus("error");
-      });
-    return () => controller.abort();
-  }, [reloadKey]);
+    setSelectedId((current) => visits.some((visit) => visit.id === current) ? current : visits[0]?.id || "");
+  }, [visits]);
 
   useEffect(() => {
     if (!container.current || mapRef.current) return undefined;
@@ -67,21 +66,21 @@ export function LiveGlobe({ visitors, lang, copy }) {
     });
     mapRef.current = map;
     const resizeObserver = "ResizeObserver" in window ? new ResizeObserver(() => map.resize()) : null;
-    if (resizeObserver) resizeObserver.observe(container.current);
+    resizeObserver?.observe(container.current);
     const firstResize = window.requestAnimationFrame(() => map.resize());
     map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
     map.addControl(new maplibregl.FullscreenControl(), "top-right");
     map.on("style.load", () => {
       map.setProjection({ type: "globe" });
-      if (!map.getSource("live-events")) map.addSource("live-events", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-      if (!map.getLayer("event-glow")) map.addLayer({ id: "event-glow", type: "circle", source: "live-events", paint: { "circle-radius": ["interpolate", ["linear"], ["get", "mag"], 2.5, 7, 7, 20], "circle-color": "#ff6b35", "circle-opacity": 0.18, "circle-blur": 0.65 } });
-      if (!map.getLayer("event-points")) map.addLayer({ id: "event-points", type: "circle", source: "live-events", paint: { "circle-radius": ["interpolate", ["linear"], ["get", "mag"], 2.5, 3.5, 7, 10], "circle-color": "#ff7d42", "circle-stroke-width": 1.5, "circle-stroke-color": "#fff", "circle-opacity": 0.95 } });
+      map.addSource("live-visitors", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({ id: "visitor-glow", type: "circle", source: "live-visitors", paint: { "circle-radius": 17, "circle-color": "#34c759", "circle-opacity": 0.17, "circle-blur": 0.7 } });
+      map.addLayer({ id: "visitor-points", type: "circle", source: "live-visitors", paint: { "circle-radius": 5, "circle-color": "#34c759", "circle-stroke-width": 1.5, "circle-stroke-color": "#fff", "circle-opacity": 0.95 } });
     });
     const markInteraction = () => { interactedUntil.current = Date.now() + 6500; };
     ["mousedown", "touchstart", "wheel", "dragstart", "zoomstart", "pitchstart", "rotatestart"].forEach((event) => map.on(event, markInteraction));
-    map.on("mouseenter", "event-points", () => { map.getCanvas().style.cursor = "pointer"; });
-    map.on("mouseleave", "event-points", () => { map.getCanvas().style.cursor = "grab"; });
-    map.on("click", "event-points", (event) => {
+    map.on("mouseenter", "visitor-points", () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", "visitor-points", () => { map.getCanvas().style.cursor = "grab"; });
+    map.on("click", "visitor-points", (event) => {
       const id = event.features?.[0]?.properties?.id;
       if (id) setSelectedId(id);
     });
@@ -92,6 +91,7 @@ export function LiveGlobe({ visitors, lang, copy }) {
       window.clearInterval(spin);
       window.cancelAnimationFrame(firstResize);
       resizeObserver?.disconnect();
+      markersRef.current.forEach((marker) => marker.remove());
       map.remove();
       mapRef.current = null;
     };
@@ -100,55 +100,52 @@ export function LiveGlobe({ visitors, lang, copy }) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const data = { type: "FeatureCollection", features: events.map((event) => ({ type: "Feature", id: event.id, geometry: { type: "Point", coordinates: [event.longitude, event.latitude] }, properties: { id: event.id, mag: event.mag, place: event.place } })) };
-    const update = () => map.getSource("live-events")?.setData(data);
+    const data = { type: "FeatureCollection", features: mappedVisits.map((visit) => ({ type: "Feature", geometry: { type: "Point", coordinates: [visit.longitude, visit.latitude] }, properties: { id: visit.id, source: visit.source } })) };
+    const update = () => map.getSource("live-visitors")?.setData(data);
     if (map.isStyleLoaded()) update(); else map.once("style.load", update);
-  }, [events]);
+  }, [mappedVisits]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !events.length) return undefined;
+    if (!map) return undefined;
     markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = events.slice(0, 60).map((event) => {
+    markersRef.current = mappedVisits.slice(0, 60).map((visit) => {
       const element = document.createElement("button");
       element.type = "button";
-      element.className = "quake-map-marker";
-      element.style.setProperty("--marker-size", `${Math.min(22, 9 + event.mag * 1.7)}px`);
-      element.style.zIndex = String(Math.round(event.mag * 100));
-      element.setAttribute("aria-label", `M ${event.mag.toFixed(1)} · ${event.place}`);
-      element.title = `M ${event.mag.toFixed(1)} · ${event.place}`;
-      element.addEventListener("click", (clickEvent) => {
-        clickEvent.stopPropagation();
-        setSelectedId(event.id);
+      element.className = "visitor-map-marker";
+      element.textContent = countryFlag(visit.countryCode);
+      element.setAttribute("aria-label", `${visit.location} · ${visit.source}`);
+      element.title = `${visit.location} · ${visit.source}`;
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setSelectedId(visit.id);
         interactedUntil.current = Date.now() + 8000;
-        map.flyTo({ center: [event.longitude, event.latitude], zoom: Math.max(3.1, map.getZoom()), duration: 1000, essential: true });
+        map.flyTo({ center: [visit.longitude, visit.latitude], zoom: Math.max(3.1, map.getZoom()), duration: 1000, essential: true });
       });
-      return new maplibregl.Marker({ element, anchor: "center" }).setLngLat([event.longitude, event.latitude]).addTo(map);
+      return new maplibregl.Marker({ element, anchor: "center" }).setLngLat([visit.longitude, visit.latitude]).addTo(map);
     });
     return () => {
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
     };
-  }, [events]);
+  }, [mappedVisits]);
 
-  const selected = events.find((event) => event.id === selectedId) || events[0];
-  const selectEvent = (event) => {
-    setSelectedId(event.id);
+  const selected = visits.find((visit) => visit.id === selectedId) || visits[0];
+  const selectVisit = (visit) => {
+    setSelectedId(visit.id);
+    if (!visit.hasCoordinates) return;
     interactedUntil.current = Date.now() + 8000;
-    mapRef.current?.flyTo({ center: [event.longitude, event.latitude], zoom: Math.max(3.1, mapRef.current.getZoom()), duration: 1200, essential: true });
+    mapRef.current?.flyTo({ center: [visit.longitude, visit.latitude], zoom: Math.max(3.1, mapRef.current.getZoom()), duration: 1200, essential: true });
   };
+  const status = traffic?.updatedAt ? "live" : "loading";
 
   return <div className="traffic-panel">
-    <div ref={container} className="globe-map" aria-label={copy.lead} />
-    <div className="traffic-top"><Globe2 size={15}/><strong>{visitors.toLocaleString()} {copy.opens}</strong><span>{events.length} {copy.events}</span></div>
-    <div className={`traffic-source traffic-source-${status}`}>
-      {status === "loading" && <><span className="source-pulse"/>{copy.loading}</>}
-      {status === "live" && <><span className="source-pulse"/>{copy.live} · <time>{new Date(updatedAt).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}</time></>}
-      {status === "error" && <button onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={12}/>{copy.retry}</button>}
-    </div>
-    {selected && <div className="quake-detail" aria-live="polite"><Activity size={16}/><div><span>{copy.selected}</span><strong>M {selected.mag.toFixed(1)} · {selected.place}</strong><small>{selected.depth.toFixed(1)} {copy.depth} · {relativeTime(selected.time, lang)}</small></div><button onClick={() => selectEvent(selected)} aria-label="Locate event"><LocateFixed size={15}/></button><a href={selected.url} target="_blank" rel="noreferrer" aria-label="USGS event"><ExternalLink size={14}/></a></div>}
-    <div className="traffic-feed">{events.slice(0, 5).map((event) => <button key={event.id} className={event.id === selected?.id ? "active" : ""} aria-pressed={event.id === selected?.id} onClick={() => selectEvent(event)}><span className="live-dot"/><strong>M {event.mag.toFixed(1)}</strong><span>{event.place}</span><small>{relativeTime(event.time, lang)}</small></button>)}</div>
+    <div ref={container} className="globe-map" aria-label={copy.lead}/>
+    <div className="traffic-top"><Users size={15}/><strong>{Number(traffic?.liveVisitors || 0).toLocaleString()} {copy.liveNow}</strong><span>{Number(traffic?.totalVisitors || 0).toLocaleString()} {copy.opens}</span></div>
+    <div className={`traffic-source traffic-source-${status}`}><span className="source-pulse"/>{status === "live" ? copy.live : copy.loading}{traffic?.updatedAt && <> · <time>{new Date(traffic.updatedAt).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}</time></>}</div>
+    {selected && <div className="visitor-detail" aria-live="polite"><Radio size={16}/><div><span>{copy.selected}</span><strong>{countryFlag(selected.countryCode)} {selected.location}</strong><small>{sourceLabel(selected.source, lang, copy.direct)} · {relativeTime(selected.lastSeen, lang)}</small></div>{selected.hasCoordinates && <button onClick={() => selectVisit(selected)} aria-label="Locate visitor"><LocateFixed size={15}/></button>}</div>}
+    <div className="traffic-feed">{visits.slice(0, 5).map((visit) => <button key={visit.id} className={visit.id === selected?.id ? "active" : ""} aria-pressed={visit.id === selected?.id} onClick={() => selectVisit(visit)}><span className="live-dot"/><strong>{countryFlag(visit.countryCode)}</strong><span>{visit.location}</span><small>{sourceLabel(visit.source, lang, copy.direct)} · {relativeTime(visit.lastSeen, lang)}</small></button>)}{!visits.length && <div className="traffic-empty"><Globe2 size={18}/><span>{copy.loading}</span></div>}</div>
     <div className="traffic-instruction">{copy.instruction}</div>
-    <a className="traffic-powered" href="https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php" target="_blank" rel="noreferrer">{copy.source}<ExternalLink size={11}/></a>
+    <a className="traffic-powered" href="/privacy">{copy.source}<ExternalLink size={11}/></a>
   </div>;
 }

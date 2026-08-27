@@ -1,7 +1,7 @@
 import { destinationFor, NETWORKS, publicNetworkConfig, verifyPayment } from "./payment-verifier.js";
 import { authorizeAdmin, cleanText, hashToken, json, requireSameOrigin, validEmail, validHttpUrl, verifyTurnstile, withSecurityHeaders } from "./security.js";
 
-const STARTING_PRICES = [400, 400, 400, 125, 125, 125, 125, 200, 200, 200];
+const STARTING_PRICES = [249, 249, 249, 69, 69, 69, 69, 129, 129, 129];
 const SPOT_NAMES = [
   ["Upper left", "左上位"], ["Marquee", "主视觉位"], ["Upper right", "右上位"],
   ["Middle left", "中部左侧"], ["Inner left", "内侧左位"], ["Inner right", "内侧右位"], ["Middle right", "中部右侧"],
@@ -10,6 +10,105 @@ const SPOT_NAMES = [
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+export function classifyTrafficSource(referrerHost = "", utmSource = "") {
+  const campaign = cleanText(utmSource, 80).toLowerCase();
+  const host = cleanText(referrerHost, 180).toLowerCase().replace(/^www\./, "");
+  if ([campaign, host].some((value) => /(^|\.)((x|twitter)\.com|t\.co)$/.test(value) || ["x", "twitter"].includes(value))) return "X";
+  if ([campaign, host].some((value) => value === "github" || /(^|\.)github\.com$/.test(value))) return "GitHub";
+  if ([campaign, host].some((value) => value === "producthunt" || /(^|\.)producthunt\.com$/.test(value))) return "Product Hunt";
+  if ([campaign, host].some((value) => ["google", "bing", "duckduckgo", "baidu"].includes(value) || /(^|\.)(google|bing|duckduckgo|baidu)\./.test(value))) return "Search";
+  if (campaign) return "Campaign";
+  if (!host) return "Direct";
+  return "Referral";
+}
+
+function validTrafficSession(value) {
+  return /^[a-zA-Z0-9_-]{16,80}$/.test(String(value || ""));
+}
+
+function finiteCoordinate(value, lower, upper) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= lower && number <= upper ? number : null;
+}
+
+async function trafficPayload(env) {
+  const liveAfter = new Date(Date.now() - 5 * 60_000).toISOString();
+  const summary = await env.DB.prepare(`
+    SELECT COUNT(*) AS total_visitors,
+           SUM(CASE WHEN last_seen >= ? THEN 1 ELSE 0 END) AS live_visitors
+      FROM traffic_sessions
+  `).bind(liveAfter).first();
+  const [{ results: visits }, { results: countries }, { results: sources }] = await Promise.all([
+    env.DB.prepare(`
+      SELECT country_code, region, city, latitude, longitude, source, referrer_host, last_seen
+        FROM traffic_sessions
+       ORDER BY last_seen DESC
+       LIMIT 80
+    `).all(),
+    env.DB.prepare(`
+      SELECT country_code, COUNT(*) AS visitors
+        FROM traffic_sessions
+       WHERE country_code IS NOT NULL AND country_code != ''
+       GROUP BY country_code
+       ORDER BY visitors DESC
+       LIMIT 12
+    `).all(),
+    env.DB.prepare(`
+      SELECT source, COUNT(*) AS visitors
+        FROM traffic_sessions
+       GROUP BY source
+       ORDER BY visitors DESC
+       LIMIT 8
+    `).all(),
+  ]);
+  return {
+    liveVisitors: Number(summary?.live_visitors || 0),
+    totalVisitors: Number(summary?.total_visitors || 0),
+    updatedAt: nowIso(),
+    visits: visits.map((visit) => ({
+      countryCode: visit.country_code || "",
+      region: visit.region || "",
+      city: visit.city || "",
+      latitude: visit.latitude === null ? null : Number(visit.latitude),
+      longitude: visit.longitude === null ? null : Number(visit.longitude),
+      source: visit.source || "Direct",
+      lastSeen: visit.last_seen,
+    })),
+    countries: countries.map((item) => ({ countryCode: item.country_code, visitors: Number(item.visitors || 0) })),
+    sources: sources.map((item) => ({ source: item.source, visitors: Number(item.visitors || 0) })),
+  };
+}
+
+async function postTrafficHeartbeat(request, env) {
+  if (!requireSameOrigin(request, env)) return json({ error: "invalid_origin" }, { status: 403 });
+  const body = await readBody(request);
+  if (!validTrafficSession(body.sessionId)) return json({ error: "invalid_session" }, { status: 400 });
+  const cf = request.cf || {};
+  const sessionId = cleanText(body.sessionId, 80);
+  const referrerHost = cleanText(body.referrerHost, 180).toLowerCase();
+  const source = classifyTrafficSource(referrerHost, body.utmSource);
+  const timestamp = nowIso();
+  await env.DB.prepare(`
+    INSERT INTO traffic_sessions
+      (session_id, first_seen, last_seen, country_code, region, city, latitude, longitude, source, referrer_host)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      last_seen = excluded.last_seen,
+      country_code = excluded.country_code,
+      region = excluded.region,
+      city = excluded.city,
+      latitude = excluded.latitude,
+      longitude = excluded.longitude,
+      source = CASE WHEN traffic_sessions.source = 'Direct' THEN excluded.source ELSE traffic_sessions.source END,
+      referrer_host = CASE WHEN traffic_sessions.referrer_host = '' THEN excluded.referrer_host ELSE traffic_sessions.referrer_host END
+  `).bind(
+    sessionId, timestamp, timestamp, cleanText(cf.country, 2).toUpperCase() || null,
+    cleanText(cf.region, 120) || null, cleanText(cf.city, 120) || null,
+    finiteCoordinate(cf.latitude, -90, 90), finiteCoordinate(cf.longitude, -180, 180), source, referrerHost,
+  ).run();
+  return json({ ok: true, traffic: await trafficPayload(env) }, { status: 201 });
 }
 
 function notificationFields(fields) {
@@ -99,19 +198,6 @@ function validateBid(body, networks) {
   if (!validEmail(body.email)) return "invalid_email";
   if (!validHttpUrl(body.website)) return "invalid_website";
   return null;
-}
-
-async function postWaitlist(request, env, ctx) {
-  if (!requireSameOrigin(request, env)) return json({ error: "invalid_origin" }, { status: 403 });
-  const body = await readBody(request);
-  const challenge = await verifyTurnstile(request, env, body.turnstileToken);
-  if (!challenge.success) return json({ error: challenge.reason }, { status: 403 });
-  if (!validEmail(body.email)) return json({ error: "invalid_email" }, { status: 400 });
-  const email = cleanText(body.email, 254).toLowerCase();
-  const handle = cleanText(body.handle, 80);
-  await env.DB.prepare("INSERT OR IGNORE INTO waitlist (email, x_handle, created_at) VALUES (?, ?, ?)").bind(email, handle, nowIso()).run();
-  scheduleNotification(ctx, notifyOwner(env, "new waitlist signup", { Email: email, "X handle": handle }));
-  return json({ ok: true }, { status: 201 });
 }
 
 async function postExperiment(request, env) {
@@ -238,6 +324,9 @@ export class AuctionRoom {
 
   async quote(body) {
     await ensureSeedSpots(this.env.DB);
+    const auction = await this.env.DB.prepare("SELECT status, ends_at FROM auctions WHERE id = 'main'").first();
+    if (auction?.status !== "live") return json({ error: "auction_not_live" }, { status: 409 });
+    if (auction?.ends_at && new Date(auction.ends_at).getTime() <= Date.now()) return json({ error: "auction_closed" }, { status: 409 });
     const networks = publicNetworkConfig(this.env);
     const invalid = validateBid(body, networks);
     if (invalid) return json({ error: invalid }, { status: 400 });
@@ -362,7 +451,8 @@ async function apiFetch(request, env, ctx) {
   });
   if (url.pathname === "/api/auction" && request.method === "GET") return json(await auctionPayload(env));
   if (url.pathname === "/api/auction/live" && request.headers.get("upgrade") === "websocket") return roomFor(env).fetch("https://auction.internal/events", request);
-  if (url.pathname === "/api/waitlist" && request.method === "POST") return postWaitlist(request, env, ctx);
+  if (url.pathname === "/api/traffic" && request.method === "GET") return json(await trafficPayload(env));
+  if (url.pathname === "/api/traffic/heartbeat" && request.method === "POST") return postTrafficHeartbeat(request, env);
   if (url.pathname === "/api/experiments" && request.method === "POST") return postExperiment(request, env);
   if (url.pathname === "/api/bids/quote" && request.method === "POST") {
     if (!requireSameOrigin(request, env)) return json({ error: "invalid_origin" }, { status: 403 });

@@ -34,6 +34,14 @@ export async function loadAuction() {
   return request("/api/auction");
 }
 
+export async function loadTraffic() {
+  return request("/api/traffic");
+}
+
+export async function recordTrafficHeartbeat(payload) {
+  return request("/api/traffic/heartbeat", { method: "POST", body: JSON.stringify(payload), keepalive: true });
+}
+
 export async function createBidQuote(payload) {
   return request("/api/bids/quote", { method: "POST", body: JSON.stringify(payload) });
 }
@@ -48,10 +56,6 @@ export async function uploadArtwork(bidId, uploadToken, file) {
 
 export async function verifyBidPayment(bidId, txHash) {
   return request("/api/payments/verify", { method: "POST", body: JSON.stringify({ bidId, txHash }) });
-}
-
-export async function joinWaitlist(payload) {
-  return request("/api/waitlist", { method: "POST", body: JSON.stringify(payload) });
 }
 
 export async function recordExperiment(variant, event, anonymousId) {

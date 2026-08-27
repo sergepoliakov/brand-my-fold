@@ -3,11 +3,12 @@
 ## Request flow
 
 1. Static React assets are served by a Cloudflare Worker.
-2. D1 stores auction, bid, payment, waitlist, conversion-event and audit records.
+2. D1 stores auction, bid, payment, anonymous visitor-session, conversion-event and audit records.
 3. One Durable Object serializes quote and commit decisions for all ten spots and broadcasts verified state over WebSocket.
 4. R2 stores PNG, JPEG and WebP artwork; the public auction payload exposes an artwork key only after moderation approval.
 5. Turnstile and same-origin checks protect public write endpoints.
 6. Network-specific RPC verification proves the exact destination, token contract or mint, amount, success and confirmation state.
+7. The traffic endpoint classifies X, GitHub, search, direct and referral arrivals and publishes only approximate, anonymous location data to the live globe.
 
 ## Bid state model
 

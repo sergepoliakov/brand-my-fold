@@ -15,7 +15,7 @@ export function withSecurityHeaders(response) {
   next.headers.set("x-frame-options", "DENY");
   next.headers.set(
     "content-security-policy",
-    "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.openfreemap.org; connect-src 'self' https://earthquake.usgs.gov https://*.openfreemap.org https://challenges.cloudflare.com wss:; worker-src 'self' blob:; font-src 'self' data:",
+    "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.openfreemap.org; connect-src 'self' https://*.openfreemap.org https://challenges.cloudflare.com wss:; worker-src 'self' blob:; font-src 'self' data:",
   );
   return next;
 }

@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { authorizeAdmin, cleanText, requireSameOrigin, validEmail, validHttpUrl, withSecurityHeaders } from "../cloudflare/security.js";
 
 test("blue path allows same-origin production writes and valid public URLs", () => {
-  const request = new Request("https://auction.example/api/waitlist", { headers: { origin: "https://auction.example" } });
+  const request = new Request("https://auction.example/api/traffic/heartbeat", { headers: { origin: "https://auction.example" } });
   assert.equal(requireSameOrigin(request, { ENVIRONMENT: "production" }), true);
   assert.equal(validEmail("bidder@example.com"), true);
   assert.equal(validHttpUrl("https://example.com/brand"), true);
 });
 
 test("red path rejects cross-origin writes, local URLs and control characters", () => {
-  const request = new Request("https://auction.example/api/waitlist", { headers: { origin: "https://evil.example" } });
+  const request = new Request("https://auction.example/api/traffic/heartbeat", { headers: { origin: "https://evil.example" } });
   assert.equal(requireSameOrigin(request, { ENVIRONMENT: "production" }), false);
   assert.equal(validHttpUrl("http://127.0.0.1/admin"), false);
   assert.equal(validHttpUrl("javascript:alert(1)"), false);
