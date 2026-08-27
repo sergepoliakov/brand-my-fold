@@ -10,6 +10,6 @@ Production activation is deliberately multi-step.
 6. Add a separate Base58 Solana receiving address before enabling the Solana option.
 7. Apply D1 migrations, deploy, and test health, config, quote, upload, verification, moderation, WebSocket and refund-queue paths.
 8. Independently verify every displayed token contract and receiving address on each network.
-9. Turn `PAYMENTS_LIVE=true` only after a small-value mainnet transfer completes the full flow on each enabled network.
+9. Turn `PAYMENTS_LIVE=true` only after address format, network ownership, official token contract or mint, RPC confirmation rules, replay protection and notification delivery pass release checks. Monitor the first live transfer end to end.
 
 Never add a signing private key, seed phrase or recovery phrase. Refunds are read from `/api/admin/refunds` and signed in an independently secured wallet workflow.

@@ -66,6 +66,9 @@ export function LiveGlobe({ visitors, lang, copy }) {
       pitchWithRotate: true,
     });
     mapRef.current = map;
+    const resizeObserver = "ResizeObserver" in window ? new ResizeObserver(() => map.resize()) : null;
+    if (resizeObserver) resizeObserver.observe(container.current);
+    const firstResize = window.requestAnimationFrame(() => map.resize());
     map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
     map.addControl(new maplibregl.FullscreenControl(), "top-right");
     map.on("style.load", () => {
@@ -87,6 +90,8 @@ export function LiveGlobe({ visitors, lang, copy }) {
     }, 70);
     return () => {
       window.clearInterval(spin);
+      window.cancelAnimationFrame(firstResize);
+      resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
     };
