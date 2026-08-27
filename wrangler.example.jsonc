@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "brand-my-fold",
+  "main": "cloudflare/index.js",
+  "compatibility_date": "2026-08-27",
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "ENVIRONMENT": "development",
+    "SITE_EDITION": "open-source",
+    "PAYMENTS_LIVE": "false",
+    "ETHEREUM_CONFIRMATIONS": "3",
+    "BSC_CONFIRMATIONS": "12"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brand-my-fold-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "ARTWORK", "bucket_name": "brand-my-fold-artwork" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "AUCTION_ROOM", "class_name": "AuctionRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AuctionRoom"] }
+  ]
+}

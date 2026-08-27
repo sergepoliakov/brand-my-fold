@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local development. Never commit real production values.
+USDT_EVM_ADDRESS=0x0000000000000000000000000000000000000000
+USDT_SOLANA_ADDRESS=
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+ADMIN_TOKEN=
+ETHEREUM_RPC_URL=https://cloudflare-eth.com
+BSC_RPC_URL=https://bsc-dataseed.bnbchain.org
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com

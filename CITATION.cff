@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use Brand My Fold, please cite the project."
+title: "Brand My Fold"
+type: software
+authors:
+  - alias: "sergepoliakov"
+repository-code: "https://github.com/sergepoliakov/brand-my-fold"
+license: MIT
+version: 1.0.0
+date-released: 2026-08-27
