@@ -26,7 +26,7 @@ export async function loadRuntimeConfig() {
   try {
     return await request("/api/config");
   } catch {
-    return { edition: import.meta.env.VITE_EDITION || "open-source", paymentsLive: false, networks: [], auctionCurrency: "USDT", offline: true };
+    return { edition: import.meta.env.VITE_EDITION || "open-source", paymentsLive: false, networks: [], auctionCurrency: "USDT", offline: true, failClosed: import.meta.env.VITE_EDITION === "production" };
   }
 }
 
